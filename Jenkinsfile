@@ -4,68 +4,117 @@ pipeline {
 
     options {
         timestamps()
-        disableConcurrentBuilds()
         timeout(time: 30, unit: 'MINUTES')
-        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()
     }
 
     tools {
         jdk 'jdk21'
     }
 
+    environment {
+        SONAR_PROJECT_KEY = 'spring-petclinic-rest'
+    }
+
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
-                sh 'git log -1 --oneline'
             }
         }
 
         stage('Validate Environment') {
             steps {
                 sh '''
+                    set -e
                     java -version
-                    git --version
-                    test -f pom.xml
-                    test -f mvnw
-                    chmod +x mvnw
+                    ./mvnw -version
                 '''
             }
         }
 
         stage('Build and Unit Test') {
             steps {
-                sh './mvnw -B clean verify'
+                sh '''
+                    set -e
+                    ./mvnw -B clean verify
+                '''
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true,
+                          testResults: '**/target/surefire-reports/*.xml'
+                }
             }
         }
 
-        stage('Verify Artifact') {
+        stage('SonarQube Analysis') {
             steps {
-                sh '''
-                    ls -lh target/
-                    find target -maxdepth 1 \
-                      -name "*.jar" -type f
-                '''
+                withSonarQubeEnv('SonarQube') {
+                    sh '''
+                        ./mvnw -B sonar:sonar \
+                          -Dsonar.projectKey=${SONAR_PROJECT_KEY}
+                    '''
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        
+	stage('Trivy Filesystem Scan') {
+   	 steps {
+       		 sh '''
+          	  trivy fs \
+           	   --scanners vuln,secret,misconfig \
+            	  --severity HIGH,CRITICAL \
+            	  --format json \
+            	  --output trivy-report.json \
+            	  --skip-dirs .git \
+            	  --skip-dirs target \
+         	     .
+
+          	  trivy fs \
+           	   --scanners vuln,secret,misconfig \
+          		    --severity HIGH,CRITICAL \
+          	    --exit-code 1 \
+          	    --skip-dirs .git \
+          	    --skip-dirs target \
+          	    .
+  		    	  '''
+  	  }
+  	  post {
+    			    always {
+         	   archiveArtifacts artifacts: 'trivy-report.json',
+                             allowEmptyArchive: true
+   	   	  }
+  		  }
+		}
+
+
+        stage('Archive Artifact') {
+            steps {
+                archiveArtifacts artifacts: 'target/*.jar',
+                                 fingerprint: true
             }
         }
     }
 
     post {
         success {
-            echo 'CI pipeline completed successfully!'
+            echo 'CI checks, SonarQube Quality Gate and Trivy scan passed.'
         }
-
         failure {
-            echo 'CI pipeline failed. Check console logs.'
+            echo 'Pipeline failed. Review the failed stage and its logs.'
         }
-
         always {
-            junit allowEmptyResults: true,
-                testResults: 'target/surefire-reports/*.xml'
-
-            archiveArtifacts \
-                artifacts: 'target/*.jar',
-                allowEmptyArchive: true
+            cleanWs()
         }
     }
-}
+} 
