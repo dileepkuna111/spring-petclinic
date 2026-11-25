@@ -49,14 +49,16 @@ pipeline {
             }
         }
 
-        stage('SonarQube Analysis') {
-            steps {
-                withSonarQubeEnv('SonarQube') {
-                    sh '''
-                        set -e
-                        ./mvnw -B sonar:sonar \
-                          -Dsonar.projectKey=${SONAR_PROJECT_KEY}
-                    '''
+	stage('SonarQube Analysis') {
+    steps {
+        withSonarQubeEnv('SonarQube') {
+            sh '''
+                set -e
+
+                ./mvnw -B \
+                  org.sonarsource.scanner.maven:sonar-maven-plugin:5.2.0.4988:sonar \
+                  -Dsonar.projectKey=${SONAR_PROJECT_KEY}
+            '''      
                 }
             }
         }
