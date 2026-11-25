@@ -17,6 +17,7 @@ pipeline {
     }
 
     stages {
+
         stage('Checkout') {
             steps {
                 checkout scm
@@ -52,6 +53,7 @@ pipeline {
             steps {
                 withSonarQubeEnv('SonarQube') {
                     sh '''
+                        set -e
                         ./mvnw -B sonar:sonar \
                           -Dsonar.projectKey=${SONAR_PROJECT_KEY}
                     '''
@@ -67,36 +69,27 @@ pipeline {
             }
         }
 
-        
-	stage('Trivy Filesystem Scan') {
-   	 steps {
-       		 sh '''
-          	  trivy fs \
-           	   --scanners vuln,secret,misconfig \
-            	  --severity HIGH,CRITICAL \
-            	  --format json \
-            	  --output trivy-report.json \
-            	  --skip-dirs .git \
-            	  --skip-dirs target \
-         	     .
-
-          	  trivy fs \
-           	   --scanners vuln,secret,misconfig \
-          		    --severity HIGH,CRITICAL \
-          	    --exit-code 1 \
-          	    --skip-dirs .git \
-          	    --skip-dirs target \
-          	    .
-  		    	  '''
-  	  }
-  	  post {
-    			    always {
-         	   archiveArtifacts artifacts: 'trivy-report.json',
-                             allowEmptyArchive: true
-   	   	  }
-  		  }
-		}
-
+        stage('Trivy Filesystem Scan') {
+            steps {
+                sh '''
+                    trivy fs \
+                      --scanners vuln,secret,misconfig \
+                      --severity HIGH,CRITICAL \
+                      --format json \
+                      --output trivy-report.json \
+                      --exit-code 1 \
+                      --skip-dirs .git \
+                      --skip-dirs target \
+                      .
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'trivy-report.json',
+                                     allowEmptyArchive: true
+                }
+            }
+        }
 
         stage('Archive Artifact') {
             steps {
@@ -110,11 +103,13 @@ pipeline {
         success {
             echo 'CI checks, SonarQube Quality Gate and Trivy scan passed.'
         }
+
         failure {
             echo 'Pipeline failed. Review the failed stage and its logs.'
         }
+
         always {
             cleanWs()
         }
     }
-} 
+}
