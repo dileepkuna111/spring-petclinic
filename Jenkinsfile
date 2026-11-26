@@ -1,4 +1,3 @@
-
 pipeline {
     agent any
 
@@ -28,14 +27,8 @@ pipeline {
             steps {
                 sh '''
                     set -e
-                    echo "Checking Java version..."
                     java -version
-
-                    echo "Checking Maven version..."
                     ./mvnw -version
-
-                    echo "Checking Trivy version..."
-                    trivy --version
                 '''
             }
         }
@@ -56,42 +49,39 @@ pipeline {
         }
 
         stage('SonarQube Analysis') {
-            steps {
-                withSonarQubeEnv('SonarQube') {
-                    sh '''
-                        set -e
+    steps {
+        withSonarQubeEnv('SonarQube') {
+            sh '''
+                set -e
 
-                        ./mvnw -B \
-                          org.sonarsource.scanner.maven:sonar-maven-plugin:5.2.0.4988:sonar \
-                          -Dsonar.projectKey=${SONAR_PROJECT_KEY}
-                    '''
+                ./mvnw -B \
+                  org.sonarsource.scanner.maven:sonar-maven-plugin:5.2.0.4988:sonar \
+                  -Dsonar.projectKey=${SONAR_PROJECT_KEY}
+            '''
                 }
             }
         }
 
-        stage('Quality Gate') {
-            steps {
-                timeout(time: 5, unit: 'MINUTES') {
-                    script {
-                        def qg = waitForQualityGate abortPipeline: false
+       
+stage('Quality Gate') {
+    steps {
+        timeout(time: 5, unit: 'MINUTES') {
+            script {
+                def qg = waitForQualityGate abortPipeline: false
 
-                        echo "SonarQube Quality Gate Status: ${qg.status}"
+                echo "SonarQube Quality Gate Status: ${qg.status}"
 
-                        if (qg.status != 'OK') {
-                            echo "WARNING: Quality Gate failed. Continuing pipeline for learning purposes."
-                        } else {
-                            echo "SonarQube Quality Gate PASSED."
-                        }
-                    }
+                if (qg.status != 'OK') {
+                    echo "WARNING: Quality Gate did not pass. Continuing pipeline for learning purposes."
                 }
             }
         }
+    }
+}
 
         stage('Trivy Filesystem Scan') {
             steps {
                 sh '''
-                    set -e
-
                     trivy fs \
                       --scanners vuln,secret,misconfig \
                       --severity HIGH,CRITICAL \
@@ -121,11 +111,11 @@ pipeline {
 
     post {
         success {
-            echo 'Pipeline completed successfully. SonarQube and Trivy stages executed.'
+            echo 'CI checks, SonarQube Quality Gate and Trivy scan passed.'
         }
 
         failure {
-            echo 'Pipeline failed. Check the failed stage and console output.'
+            echo 'Pipeline failed. Review the failed stage and its logs.'
         }
 
         always {
