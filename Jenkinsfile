@@ -4,19 +4,9 @@ pipeline {
     options {
         timestamps()
         timeout(time: 30, unit: 'MINUTES')
-        disableConcurrentBuilds()
-    }
-
-    tools {
-        jdk 'jdk21'
-    }
-
-    environment {
-        SONAR_PROJECT_KEY = 'spring-petclinic-rest'
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 checkout scm
@@ -42,83 +32,58 @@ pipeline {
             }
             post {
                 always {
-                    junit allowEmptyResults: true,
-                          testResults: '**/target/surefire-reports/*.xml'
+                    junit '**/target/surefire-reports/*.xml'
                 }
             }
         }
 
         stage('SonarQube Analysis') {
-    steps {
-        withSonarQubeEnv('SonarQube') {
-            sh '''
-                set -e
-
-                ./mvnw -B \
-                  org.sonarsource.scanner.maven:sonar-maven-plugin:5.2.0.4988:sonar \
-                  -Dsonar.projectKey=${SONAR_PROJECT_KEY}
-            '''
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh '''
+                        set -e
+                        ./mvnw -B org.sonarsource.scanner.maven:sonar-maven-plugin:5.2.0.4988:sonar \
+                            -Dsonar.projectKey=spring-petclinic-rest
+                    '''
                 }
             }
         }
 
-       
-stage('Quality Gate') {
-    steps {
-        timeout(time: 5, unit: 'MINUTES') {
-            script {
-
-                echo "SonarQube Quality Gate Status: ${qg.status}"
-
-                if (qg.status != 'OK') {
-                    echo "WARNING: Quality Gate did not pass. Continuing pipeline for learning purposes."
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    script {
+                        def qg = waitForQualityGate()
+                        if (qg.status != 'OK') {
+                            error "Pipeline aborted due to SonarQube Quality Gate failure: ${qg.status}"
+                        }
+                    }
                 }
             }
         }
-    }
-}
 
         stage('Trivy Filesystem Scan') {
             steps {
                 sh '''
-                    trivy fs \
-                      --scanners vuln,secret,misconfig \
-                      --severity HIGH,CRITICAL \
-                      --format json \
-                      --output trivy-report.json \
-                      --exit-code 1 \
-                      --skip-dirs .git \
-                      --skip-dirs target \
-                      .
+                    set -e
+                    trivy fs --exit-code 0 --severity HIGH,CRITICAL .
                 '''
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'trivy-report.json',
-                                     allowEmptyArchive: true
-                }
             }
         }
 
         stage('Archive Artifact') {
             steps {
-                archiveArtifacts artifacts: 'target/*.jar',
-                                 fingerprint: true
+                archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
             }
         }
     }
 
     post {
-        success {
-            echo 'CI checks, SonarQube Quality Gate and Trivy scan passed.'
-        }
-
-        failure {
-            echo 'Pipeline failed. Review the failed stage and its logs.'
-        }
-
         always {
             cleanWs()
+        }
+        failure {
+            echo 'Pipeline failed. Review the failed stage and its logs.'
         }
     }
 }
